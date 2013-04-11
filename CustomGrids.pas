@@ -210,7 +210,7 @@ procedure TScrollDBGrid.WMMouseWheel(var Msg:TMessage);
 var i:SmallInt;
     Key:Integer;
 begin
-  i:=HiWord(Msg.wParam); // оличество строк прокрутки
+  i:=SmallInt(HiWord(LongWord(Msg.wParam))); // оличество строк прокрутки
   if i>0 then Key:=VK_UP else begin Key:=VK_DOWN; i:=i*-1; end;
   i:=(2*i)div(WHEEL_DELTA+2);
   repeat //„ем быстрее вращаем колесо, тем на большее количество строк прокручиваем
