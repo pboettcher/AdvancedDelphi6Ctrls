@@ -163,6 +163,9 @@ begin
 end;
 
 procedure TCharPickGrid.GetFontRanges;
+type
+  TRangesArray = array[0..(MaxInt div SizeOf(TWCRange))-1] of TWCRange;
+  PRangesArray = ^TRangesArray;
 var GS:PGlyphSet;
     GSSize:LongWord;
     i, RngLow, RngHigh: Integer;
@@ -178,7 +181,7 @@ begin
     GS.cRanges:=0;
     if GetFontUnicodeRanges(Canvas.Handle, GS)<>0 then begin
       for i:=0 to GS.cRanges-1 do begin
-        rng := GS.ranges[i];
+        rng := PRangesArray(@GS.ranges)[i];
         RngLow := Word(rng.wcLow);
         RngHigh := RngLow + rng.cGlyphs - 1;
         if RngHigh < FStartChar then Continue;
