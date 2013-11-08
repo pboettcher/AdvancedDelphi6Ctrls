@@ -151,6 +151,7 @@ type
     FDescMarker:TBitmap;
     FAutoSizeLock:LongInt;
     FMAS:boolean;
+    FPrevRecNo: Integer;
     procedure SetASK(ASK:TGridAutoSizeKind);
     function GetColumns: TDBAutoSizeColumns;
     procedure SetColumns(const Value:TDBAutoSizeColumns);
@@ -659,6 +660,7 @@ end;
 constructor TAutoSizeDBGrid.Create(AOwner:TComponent);
 begin
   inherited;
+  FPrevRecNo := -1;
   FMAS:=False;
   FAutoSizeLock:=0;
   FAscMarker:=InitSortMarker(smAscending);
@@ -766,11 +768,17 @@ begin
 end;
 
 procedure TAutoSizeDBGrid.TimerTick(Sender:TObject);
+var ds: TDataSet;
 begin
-  if FMAS then Exit;
-  FTimer.Enabled:=False;
-  AutoSizeColumns;
-  FTimer.Enabled:=True;
+  try
+    FTimer.Enabled := False;
+    ds := DataLink.DataSet;
+    if (ds = nil) or FMAS or not ds.Active or (FPrevRecNo = ds.RecNo) then Exit;
+    FPrevRecNo := ds.RecNo;
+    AutoSizeColumns;
+  finally
+    FTimer.Enabled := True;
+  end;
 end;
 
 procedure TAutoSizeDBGrid.Update;
