@@ -152,6 +152,7 @@ type
     FAutoSizeLock:LongInt;
     FMAS:boolean;
     FPrevRecNo: Integer;
+    FLinkUpdated: Boolean;
     procedure SetASK(ASK:TGridAutoSizeKind);
     function GetColumns: TDBAutoSizeColumns;
     procedure SetColumns(const Value:TDBAutoSizeColumns);
@@ -163,6 +164,7 @@ type
   protected
     function CreateColumns: TDBGridColumns; override;
     procedure DrawCell(ACol,ARow:LongInt; ARect:TRect; AState:TGridDrawState); override;
+    procedure LinkActive(Value: Boolean); override;
   public
     constructor Create(AOwner:TComponent); override;
     destructor Destroy; override;
@@ -661,6 +663,7 @@ constructor TAutoSizeDBGrid.Create(AOwner:TComponent);
 begin
   inherited;
   FPrevRecNo := -1;
+  FLinkUpdated := True;
   FMAS:=False;
   FAutoSizeLock:=0;
   FAscMarker:=InitSortMarker(smAscending);
@@ -773,7 +776,9 @@ begin
   try
     FTimer.Enabled := False;
     ds := DataLink.DataSet;
-    if (ds = nil) or FMAS or not ds.Active or (FPrevRecNo = ds.RecNo) then Exit;
+    if (ds = nil) or FMAS or not ds.Active then Exit;
+    if (FPrevRecNo = ds.RecNo) and not FLinkUpdated then Exit;
+    FLinkUpdated := False;
     FPrevRecNo := ds.RecNo;
     AutoSizeColumns;
   finally
@@ -833,6 +838,12 @@ begin
   inherited;
   {Если fixed row, но не индикатор}
   if (gdFixed in AState)and(ACol>=0)and(ARow=0) then DrawSortMarker(ARect);
+end;
+
+procedure TAutoSizeDBGrid.LinkActive(Value: Boolean);
+begin
+  inherited;
+  FLinkUpdated := True;
 end;
 
 end.
