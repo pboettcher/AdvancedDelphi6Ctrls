@@ -561,8 +561,6 @@ begin
   inherited;
   BorderWidth:=5;
   Height:=34;
-  Constraints.MaxHeight:=34;
-  Constraints.MinHeight:=34;
   FTitlePanel:=TTntPanel.Create(Self);
   with FTitlePanel do begin
     Parent:=Self;
