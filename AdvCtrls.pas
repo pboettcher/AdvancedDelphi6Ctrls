@@ -225,6 +225,13 @@ type
     property ButtonsHeight:Integer read GetBtnsHeight write SetBtnsHeight;
   end;
   
+  TSpecCharMemo = class(TTntMemo)
+  private
+    procedure WMPaint(var msg: TWMPaint); message WM_PAINT;
+  protected
+    procedure Change(); override;
+  end;
+
 procedure Register;
 
 implementation
@@ -240,7 +247,7 @@ begin
     TSpecCharEdit, TAlignedComboBox, TAlignedBitBtn, TAlignedSpeedButton,
     TAlignedCheckBox, TScrollListBox, TLinkPanel, TFadeablePanel,
     TBlinkingSpeedButton, TAlignedDateTimePicker, TModMonthCalendar,
-    TOkCancelPanel, TDBAlignedComboBox]);
+    TOkCancelPanel, TDBAlignedComboBox, TSpecCharMemo]);
   RegisterPropertyEditor(TypeInfo(TWideCaption), TOkCancelPanel, 'Caption', nil);
 end;
 
@@ -1029,6 +1036,51 @@ procedure TOkCancelPanel.SetEnabled(Value: Boolean);
 begin
   inherited;
   SetButtonsEnabledState;
+end;
+
+{=============================== TSpecCharMemo ==============================}
+
+procedure TSpecCharMemo.Change();
+begin
+  inherited;
+  Invalidate();
+end;
+
+procedure TSpecCharMemo.WMPaint(var msg: TWMPaint);
+var
+  PS: TPaintStruct;
+  DC: HDC;
+  i, fh, L: Integer;
+  X, Y: Word;
+  s, txt: WideString;
+begin
+  DC := msg.DC;
+  if DC = 0 then
+    DC := BeginPaint(Handle, PS);
+  try
+    X := 1;
+    Y := 1;
+    SetBkColor(DC, Cardinal(Color));
+    SetBkMode(DC, Transparent);
+    SelectObject(DC, Font.Handle);
+    fh := Abs(Font.Height) + 2;
+    txt := Lines.Text;
+    for i := 0 to Lines.Count - 1 do begin
+      s := Lines[i];
+      L := Length(s);
+      txt := Copy(txt, L + 1, Length(txt) - L);
+      if Copy(txt, 1, 2) = #13#10 then begin
+        s := s + WideChar(182);
+        Inc(L);
+        txt := Copy(txt, 3, Length(txt) - 2);
+      end;
+      TextOutW(DC, X, Y, PWideChar(s), L);
+      Inc(Y, fh);
+    end;
+  finally
+    if msg.DC = 0 then
+      EndPaint(Handle, PS);
+  end;
 end;
 
 end.
