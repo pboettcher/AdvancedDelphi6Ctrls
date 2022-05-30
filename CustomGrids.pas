@@ -7,6 +7,8 @@ uses
   Graphics;
 
 type
+  TColumnTextEvent = procedure(Sender: TObject; Column: TTntColumn; var AText: WideString) of object;
+  
   {Unicode-DBGrid с нормальной прокруткой мышью.
    Новая функциональность:
    - Прокрутка мышью с учётом скорости вращения колёсика
@@ -16,6 +18,7 @@ type
   private
     FColor:TColor;
     FInactColor:TColor;
+    FOnColumnCellText: TColumnTextEvent;
     procedure WMMouseWheel(var Msg:TMessage); message WM_MOUSEWHEEL;
     procedure WMRButtonDown(var Msg:TWMRButtonDown); message WM_RBUTTONDOWN;
     procedure WMKeyDown(var Msg:TWMKeyDown); message WM_KEYDOWN;
@@ -30,9 +33,15 @@ type
     function GetEnabled:boolean; override;
   public
     constructor Create(AOwner:TComponent); override;
+    procedure DefaultDrawColumnCell(const Rect: TRect; DataCol: Integer;
+      Column: TTntColumn; State: TGridDrawState); override;
+    function DefaultGetColumnCellText(Column: TTntColumn): WideString;
+    procedure DefaultDrawColumnCellText(const Rect: TRect;
+      Column: TTntColumn; Value: WideString);
   published
     property Color:TColor read FColor write SetColor;
     property InactiveColor:TColor read FInactColor write SetInactColor;
+    property OnColumnCellText: TColumnTextEvent read FOnColumnCellText write FOnColumnCellText;
   end;
 
   TColResizeEvent=procedure(Sender:TObject; ColIndex:Longint) of object;
@@ -181,7 +190,9 @@ procedure Register;
 
 implementation
 
-uses DB,RTLConsts,StdCtrls, ACCommon, SysUtils;
+uses
+  DB, RTLConsts, StdCtrls, ACCommon, SysUtils, Controls, TntGraphics,
+  TntWindows, TntDB, Math;
 
 procedure Register;
 begin
@@ -196,6 +207,76 @@ end;
 procedure ShowMessage(Msg:WideString);
 begin
   MessageBoxW(0, PWideChar(Msg), 'CustomGrids', 0);
+end;
+
+var
+  DrawBitmap: TBitmap = nil;
+
+procedure WriteText(ACanvas: TCanvas; ARect: TRect; DX, DY: Integer;
+  const Text: WideString; Alignment: TAlignment; ARightToLeft: Boolean);
+const
+  AlignFlags : array [TAlignment] of Integer =
+    ( DT_LEFT or DT_WORDBREAK or DT_EXPANDTABS or DT_NOPREFIX,
+      DT_RIGHT or DT_WORDBREAK or DT_EXPANDTABS or DT_NOPREFIX,
+      DT_CENTER or DT_WORDBREAK or DT_EXPANDTABS or DT_NOPREFIX );
+  RTL: array [Boolean] of Integer = (0, DT_RTLREADING);
+var
+  B, R: TRect;
+  Hold, Left: Integer;
+  I: TColorRef;
+begin
+  I := ColorToRGB(ACanvas.Brush.Color);
+  if GetNearestColor(ACanvas.Handle, I) = I then
+  begin                       { Use ExtTextOutW for solid colors }
+    { In BiDi, because we changed the window origin, the text that does not
+      change alignment, actually gets its alignment changed. }
+    if (ACanvas.CanvasOrientation = coRightToLeft) and (not ARightToLeft) then
+      ChangeBiDiModeAlignment(Alignment);
+    case Alignment of
+      taLeftJustify:
+        Left := ARect.Left + DX;
+      taRightJustify:
+        Left := ARect.Right - WideCanvasTextWidth(ACanvas, Text) - 3;
+    else { taCenter }
+      Left := ARect.Left + (ARect.Right - ARect.Left) div 2
+        - (WideCanvasTextWidth(ACanvas, Text) div 2);
+    end;
+    WideCanvasTextRect(ACanvas, ARect, Left, ARect.Top + DY, Text);
+  end
+  else begin                  { Use FillRect and Drawtext for dithered colors }
+    DrawBitmap.Canvas.Lock;
+    try
+      with DrawBitmap, ARect do { Use offscreen bitmap to eliminate flicker and }
+      begin                     { brush origin tics in painting / scrolling.    }
+        Width := Max(Width, Right - Left);
+        Height := Max(Height, Bottom - Top);
+        R := Rect(DX, DY, Right - Left - 1, Bottom - Top - 1);
+        B := Rect(0, 0, Right - Left, Bottom - Top);
+      end;
+      with DrawBitmap.Canvas do
+      begin
+        Font := ACanvas.Font;
+        Font.Color := ACanvas.Font.Color;
+        Brush := ACanvas.Brush;
+        Brush.Style := bsSolid;
+        FillRect(B);
+        SetBkMode(Handle, TRANSPARENT);
+        if (ACanvas.CanvasOrientation = coRightToLeft) then
+          ChangeBiDiModeAlignment(Alignment);
+        Tnt_DrawTextW(Handle, PWideChar(Text), Length(Text), R,
+          AlignFlags[Alignment] or RTL[ARightToLeft]);
+      end;
+      if (ACanvas.CanvasOrientation = coRightToLeft) then  
+      begin
+        Hold := ARect.Left;
+        ARect.Left := ARect.Right;
+        ARect.Right := Hold;
+      end;
+      ACanvas.CopyRect(ARect, DrawBitmap.Canvas, B);
+    finally
+      DrawBitmap.Canvas.Unlock;
+    end;
+  end;
 end;
 
 {========================= TScrollDBGrid =========================}
@@ -296,6 +377,31 @@ end;
 begin
   Result:=inherited HighlightCell(DataCol, DataRow, Value, AState) and Focused;
 end;}
+
+function TScrollDBGrid.DefaultGetColumnCellText(Column: TTntColumn): WideString;
+begin
+  Result := '';
+  if Assigned(Column.Field) then
+    Result := GetWideDisplayText(Column.Field);
+  if Assigned(FOnColumnCellText) then
+    FOnColumnCellText(Self, Column, Result);
+end;
+
+procedure TScrollDBGrid.DefaultDrawColumnCellText(const Rect: TRect;
+  Column: TTntColumn; Value: WideString);
+begin
+  WriteText(Canvas, Rect, 2, 2, Value, Column.Alignment,
+    UseRightToLeftAlignmentForField(Column.Field, Column.Alignment));
+end;
+
+procedure TScrollDBGrid.DefaultDrawColumnCell(const Rect: TRect;
+  DataCol: Integer; Column: TTntColumn; State: TGridDrawState);
+var
+  Value: WideString;
+begin
+  Value := DefaultGetColumnCellText(Column);
+  DefaultDrawColumnCellText(Rect, Column, Value);
+end;
 
 {===================== TAutoSizeStringGrid =======================}
 
@@ -697,7 +803,7 @@ end;
 procedure TAutoSizeDBGrid.AutoSizeColumns;
 var i,CW,OldActive,ARow,LC,MaxRow:Integer;
     ASK:TAutoSizeKind;
-    CF:TField;
+    //CF:TField;
     WS:WideString;
     Size:TSize;
     FCMW:array of Integer; //Columns Maximum Width
@@ -734,9 +840,9 @@ begin
     for ARow:=0 {TopRow} to MaxRow do begin
       DataLink.ActiveRecord:=ARow; //было ARow-1;
       for i:=0 to Columns.Count-1 do begin
-        CF:=Columns[i].Field;
+        //CF:=Columns[i].Field;
         try
-          WS:=AutoStringField(CF);
+          WS:= DefaultGetColumnCellText(Columns[i]); // AutoStringField(CF);
         except
           WS:='';
         end;
@@ -845,6 +951,12 @@ begin
   inherited;
   FLinkUpdated := True;
 end;
+
+initialization
+  DrawBitmap := TBitmap.Create;
+
+finalization
+  DrawBitmap.Free;
 
 end.
 
